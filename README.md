@@ -1,20 +1,20 @@
-# Simple Graph
-This Gymnasium package implements a simple graph environment
-described in Adam Zsolt Wagner's paper on using cross entropy method
-for reinforcement learning on (simple) graphs.
+# Cross entropy method for constructing graphs
+The current project presents a fresh implementation of
+Adam Zsolt Wagner's approach for applying 
+cross entropy method for constructing graph with specified properties
+(usually as counterexamples to conjectures).
 
-### Environments
-- `SimpleGraphEnv`: 
-         Each action is either 0 or 1, 
-         representing the adjacency matrix entry for the edge that is to be described next.
-         Each observation consists of:
-           a) the upper half of the adjacency matrix, followed by
-           b) the one-hot encoding of the edge that is to be described next.
-         Intermediate rewards are all zeros,
-         with the final reward equal to one, when the complete graph is described.
-         Reward wrapper is then needed to compute the actual graph invariant of interest.
+`cema_train_simple_graph.py` provides methods: 
+- for constructing a new generation of graphs 
+based on the currently trained network,
+- for learning from selected best graphs, and
+- for promoting even narrower selection of best graphs to the next generation.
 
-### Wrappers
-- `GraphInvariant`: 
-         A `RewardWrapper` that computes the graph invariant of interest,
-         when the simple graph is fully described.
+`training_runner.py` contains the code for computing rewards for constructed graphs
+through a jpype connection to graph6java.jar,
+a library of java methods for computing with graphs
+(usually 3-5 faster than a combination of numpy and networkx).
+
+More details to follow in a forthcoming paper.
+
+Joint work with Salem Al-Yakoub, Ali Kanso and Mohammad Ghebleh.
