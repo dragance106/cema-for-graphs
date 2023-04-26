@@ -175,7 +175,7 @@ def train(compute_reward,
     # the final layer, but without softmax activation layer,
     # which will be applied later to deduce action probabilities
     model = model.append(nn.Linear(neurons[-1], 2))         # 2 = possible actions for simple graphs
-                                                            # 3 = possible actions for signed and directed graphs
+                                                            # 3 = possible actions for signed graphs
 
     objective = nn.CrossEntropyLoss()   # combines together the softmax layer applied to the network output
                                         # with cross entropy loss with actual actions used,
@@ -233,11 +233,21 @@ def train(compute_reward,
             rew_full = np.concatenate((rew_new, rew_survive), axis=0)
 
         # select observation/action pairs for learning
-        lrn_reward = np.percentile(rew_full, percent_learn)
-        ind_learn = np.where(rew_full>=lrn_reward)[0]
-        # do not learn from too many triplets - the old method
-        # cut_off_size = round(batch_size*(100-percent_learn))
-        # ind_learn = ind_learn[:cut_off_size]
+        # but put an upper bound of batch_size/2 on the number of pairs
+        cutoff_percent = percent_learn
+        while cutoff_percent<99.9:
+            lrn_reward = np.percentile(rew_full, cutoff_percent)
+            ind_learn = np.where(rew_full>=lrn_reward)[0]
+            if ind_learn.size <= batch_size//2:
+                # we're done - there are not too many pairs to learn from
+                break
+            else:
+                # try with a higher cutoff percent
+                cutoff_percent = (100+cutoff_percent)/2
+
+        # just make sure that you stay within the limits if you came to the situation
+        # that there are more than batch_size/2 pairs with almost the same maximum reward
+        ind_learn = ind_learn[:batch_size//2]
 
         # observations and actions must be reshaped,
         # so that the first dimension is the number of pairs from which to learn,
