@@ -16,3 +16,5 @@ a library of java methods for computing with graphs
 (usually 3-5 faster than a combination of numpy and networkx).
 
 More details to follow in a forthcoming paper.
+
+This research was supported by the Science Fund of the Republic of Serbia, #6767, Lazy walk counts and spectral radius of graphs - LZWK.
