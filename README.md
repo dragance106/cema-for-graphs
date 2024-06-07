@@ -16,5 +16,3 @@ a library of java methods for computing with graphs
 (usually 3-5 faster than a combination of numpy and networkx).
 
 More details to follow in a forthcoming paper.
-
-Joint work with Salem Al-Yakoub, Ali Kanso and Mohammad Ghebleh.
