@@ -17,4 +17,4 @@ a library of java methods for computing with graphs
 
 More details to follow in a forthcoming paper.
 
-Joint work with Salem Al-Yakoub, Ali Kanso and Mohammad Ghebleh.
+This research was supported by the Science Fund of the Republic of Serbia, #6767, Lazy walk counts and spectral radius of graphs - LZWK.
