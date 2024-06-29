@@ -18,6 +18,7 @@ as that combination is some 3-5 times faster than the numpy/networkx combo.
 #################################################################
 # import jpype
 import jpype.imports
+import networkx as nx
 from jpype.types import *
 
 # startJVM method scans the provided class path for jar files and loads them all at once.
@@ -33,6 +34,21 @@ from graph6java import Graph
 import numpy as np
 import math
 INF = 1000000                   # a very large number used by compute_reward to signify unwanted graphs
+
+def triangle_conflict(n, A):
+    B = np.matmul(A, A)
+    C = np.matmul(A, B)
+    r = 0
+
+    for i in range(n):
+        for j in range(i+1, n):
+            if B[i,i]!=B[j,j]:
+                r += 3
+            if C[i,i]==C[j,j]:
+                r += 1
+
+    return -r
+
 
 def lambda1_plus_mu(n, A):
     """
@@ -166,22 +182,74 @@ def ga_lambda1_ra(n, A):
 def frustrating_energy(n, A):
     """
     Computes Delta + delta - energy, but wants to see only non-singular graphs.
+
+    IMPORTANT TO NOTE: Akbari and Hosseinzadeh have a new strengthened conjecture
+    that the energy of a non-singular graph is at least n - 1 + 2m/n,
+    except for two counterexamples of order 4.
+    CHECK OUT: Li, Xueliang; Wang, Zhiqian
+    Validity of Akbari’s energy conjecture for threshold graphs. (English) Zbl 1487.05165
+    Bull. Malays. Math. Sci. Soc. (2) 45, No. 3, 991-1002 (2022).
+    AND TEST IT OUT HERE AS WELL!
     """
     g = Graph(JInt[:,:](A))
 
     if g.numberComponents()>1:
         return -INF
 
-    # how do I check that the graph is non-singular?
     if g.Asingular():
         return -INF
 
+    # additionally, we want to avoid all the corollaries that imply the conjecture
+    m = g.m()
     degrees = g.degrees()
     Delta = max(degrees)
     delta = min(degrees)
     energy = g.Aenergy()
+    lambda1 = max(g.Aspectrum())
+    detA = np.prod(np.array(g.Aspectrum()))
+
+    if n>=Delta+delta:
+        return -INF
+
+    if abs(detA)>=lambda1:
+        return -INF
+
+    if 2*m+n*(n-1)>=(Delta+delta)**2:
+        return -INF
+
+    if lambda1 - math.log(lambda1)>=delta:
+        return -INF
+
+    if Delta<=math.pow(n-1, 1-1.0/n):
+        return -INF
 
     return Delta+delta-energy
+
+
+def frustrating_energy2(n, A):
+    """
+    Computes n-1 + 2m/n - energy, but wants to see only non-singular graphs.
+
+    IMPORTANT TO NOTE: Akbari and Hosseinzadeh have a new strengthened conjecture
+    that the energy of a non-singular graph is at least n - 1 + 2m/n,
+    except for two counterexamples of order 4.
+    CHECK OUT: Li, Xueliang; Wang, Zhiqian
+    Validity of Akbari’s energy conjecture for threshold graphs. (English) Zbl 1487.05165
+    Bull. Malays. Math. Sci. Soc. (2) 45, No. 3, 991-1002 (2022).
+    """
+    g = Graph(JInt[:,:](A))
+
+    if g.numberComponents()>1:
+        return -INF
+
+    if g.Asingular():
+        return -INF
+
+    # additionally, we want to avoid all the corollaries that imply the conjecture
+    m = g.m()
+    energy = g.Aenergy()
+
+    return n-1 + (2.0*m)/n - energy
 
 
 def ramsey_5_6(n, A):
@@ -1172,15 +1240,169 @@ def auto_lapla_68(n, A):
     under = np.maximum(zeros, (avdrow-avdcol)**2+4*degrow*degcol-4*(avdrow+avdcol)+4)
     return mu - np.amax(A*(2+np.sqrt(under)))
 
+def brouwer(n, A):
+    """
+    Learning with default parameters very quickly leads to complete graphs.
+    Slower learning with smaller percent_learn and larger percent_survive
+    leads to complete split graphs as the extremal graphs with zero reward.
+    """
+    g = Graph(JInt[:,:](A))
+    m = g.m()
+    mu = np.flip(np.array(g.Lspectrum()))
+    br = np.zeros(n)
+    br[0] = mu[0] - m - 1
+    for k in range(1,n):
+        br[k] = br[k-1] + mu[k] - (k+1)
+    return np.max(br)
+
+def elphick(n, A):
+    """
+    Elphick-Farber-Goldberg-Wocjan conjecture states that
+    the sum of squares of positive A-eigenvalues is at least n-1 in connected graphs,
+    and the same for the sum of squares of negative A-eigenvalues.
+
+    splus is the sum of squares of positive A-eigenvalues
+    sminus is the sum of squares of negative A-eigenvalues
+
+    Returns the reward n-1 - min(splus, sminus).
+
+    It appears that the maximal reward (0) will be attained for paths, actually!
+    """
+    g = Graph(JInt[:,:](A))
+    if g.numberComponents()>1:
+        return -INF
+
+    Aeig = g.Aspectrum()
+    splus = 0
+    sminus = 0
+    for eig in Aeig:
+        if eig>0:
+            splus = splus + eig*eig
+        if eig<0:
+            sminus = sminus + eig*eig
+
+    return n-1-min(splus, sminus)
+
+
+import networkx as nx
+def lambda2clique(n, A):
+    """
+    Bollobas-Nikiforov conjectured that lambda1**2 + lambda2**2 <= 2(1 - 1/clique)*|E|.
+    Elphick-Linz-Wocjan strengthened it to sum_{i=1}^L lambda_i**2 <= 2(1 - 1/clique)*|E|,
+    where L = min(clique number, num of positive eigenvalues).
+
+    Returns the reward sum_{i=1}^L lambda_i**2 - 2(1-1/clique)|E|,
+    where the clique number is computed by networkX
+
+    Identifies complete graphs as the ones with the maximum reward
+    """
+    g = Graph(JInt[:,:](A))
+    if g.numberComponents()>1:
+        return -INF
+
+    gnx = nx.from_numpy_array(A)
+    _, cliq = nx.max_weight_clique(gnx, weight=None)
+
+    Aeig = np.flip(np.array(g.Aspectrum()))
+    pos_eig = 0
+    for eig in Aeig:
+        if eig>0:
+            pos_eig = pos_eig + 1
+
+    L = min(cliq, pos_eig)
+    splus = 0
+    for i in range(L):
+        splus = splus + Aeig[i]**2
+
+    return splus - 2*g.m()*(cliq-1)/cliq
+
+def energy_independence(n, A):
+    """
+    Graffiti made a conjecture that energy/2 >= n - independence_number,
+
+    Returns the reward 2*(n - independence_number) - energy.
+
+    It appears that two copies of K_(n/2) connected by an edge will be extremal,
+    with the reward tending to zero.
+    """
+    g = Graph(JInt[:,:](A))
+    if g.numberComponents()>1:
+        return -INF
+
+    energy = g.Aenergy()
+
+    gnx = nx.complement(nx.from_numpy_array(A))
+    _, ind = nx.max_weight_clique(gnx, weight=None)
+
+    return 2*(n - ind) - energy
+
+def spectral_gap(n, A):
+    """
+    Stanic conjectured that among connected graphs on n vertices,
+    the minimum spectral gap is attained by some double kite graph
+    (two complete graphs of the same size connected by a path).
+
+    Returns reward lambda_2 - lambda_1 since RL is a maximizer.
+    """
+    g = Graph(JInt[:,:](A))
+    if g.numberComponents()>1:
+        return -INF
+
+    Aeig = np.flip(np.array(g.Aspectrum()))
+    return Aeig[1] - Aeig[0]
+
+def powers3(n, A):
+    """
+    Powers conjectured that lambda_3 <= floor(n/3).
+
+    Returns the reward lambda_3 - floor(n/3).
+
+    It appears cyclically connected copies of complete graphs will have maximum reward.
+    """
+    g = Graph(JInt[:,:](A))
+    if g.numberComponents()>1:
+        return -INF
+
+    Aeig = np.flip(np.array(g.Aspectrum()))
+    return Aeig[2] - math.floor(n/3.0)
+
+def powers4(n, A):
+    g = Graph(JInt[:,:](A))
+    if g.numberComponents()>1:
+        return -INF
+
+    Aeig = np.flip(np.array(g.Aspectrum()))
+    return Aeig[3] - math.floor(n/4.0)
+
+def sombor_nordhaus_gaddum(n, A):
+    g = Graph(JInt[:,:](A))
+    h = g.complement()
+
+    return -(g.sombor()+h.sombor())/(n*(n-1)*(n-1))
+
 
 ############################################################
 # Training the cross entropy method agent on above rewards #
 ############################################################
-from cema_train_simple_graph import train
+if __name__=="__main__":
+    from cema_train_simple_graph import train
 
-# r, A = train(compute_reward=lambda1_plus_mu)         # all optional arguments have default values
-# r, A = train(compute_reward=lambda1_plus_mu, n=29)     # let's try higher number of vertices
-# r, A = train(compute_reward=energy_minus_2musqrtdelta, n=29)
+    for n in range(21, 25):
+        r, A = train(compute_reward=sombor_nordhaus_gaddum,
+                     n=n,
+                     num_generations=10000)
+
+    # r, A = train(compute_reward=brouwer,
+    #              n=29,
+    #              percent_learn=75,
+    #              percent_survive=97.5,
+    #              # act_rndness_wait=5,
+    #              # act_rndness_max=0.05,
+    #              num_generations=10000)
+
+#    r, _ = train(compute_reward=triangle_conflict,
+#                 num_generations=10000)
+
 # r, A = train(compute_reward=ramsey_5_6,
 #              n=58,
 #              batch_size=200,
@@ -1191,6 +1413,7 @@ from cema_train_simple_graph import train
 #              neurons=[192,16],
 #              act_rndness_init=0.0005,
 #              act_rndness_max=0.0015)
+
 # r, A = train(compute_reward=lambda1_nonregular,
 #              n=40,
 #              batch_size=400,
@@ -1198,26 +1421,10 @@ from cema_train_simple_graph import train
 #              percent_learn=95,
 #              percent_survive=97.5,
 #              neurons=[100,15])
-# r, A = train(compute_reward=skrek_popivoda, n=35, num_generations=10000)
-# r, A = train(compute_reward=ga_lambda1_ra, n=30, num_generations=5000)
-# r, A = train(compute_reward=ga_lambda1,
-#              n=60,
-#              percent_learn=50,
-#              percent_survive=99,
-#              num_generations=2000)
-# r, A = train(compute_reward=frustrating_energy, n=39, num_generations=10000)
+
 # r, A = train(compute_reward=ti_graphs)
-# r, A = train(compute_reward=iti_graphs, n=25)
+# r, A = train(compute_reward=iti_graphs, n=23)
 # r, A = train(compute_reward=soltes_sum)
-# r, A = train(compute_reward=auto_lapla_6,
-#              n=21,
-#              percent_learn=90,
-#              percent_survive=98,
-#              batch_size=500,
-#              act_rndness_max=0.1,
-#              num_generations=5000)
-r, A = train(compute_reward=auto_lapla_68)
-print(f'reward={r}\nadj.mat=\n{A}')
 
 # when jpype is no longer needed...
 jpype.shutdownJVM()
